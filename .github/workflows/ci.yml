@@ -6,6 +6,10 @@ on:
   push:
     branches: [main, master]
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   server-tests:
     name: Server Unit Tests
@@ -26,8 +30,32 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
-      - name: Run unit tests
-        run: uv run pytest tests/unit -v
+      - name: Run unit tests with coverage
+        run: uv run pytest tests/unit -v --cov=src --cov-report=xml:coverage.xml
+
+      - name: Post server coverage to PR
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: server
+        run: |
+          TOTAL=$(uv run python -c "
+          import xml.etree.ElementTree as ET
+          rate = float(ET.parse('coverage.xml').getroot().attrib['line-rate'])
+          print(f'{rate * 100:.0f}')
+          ")
+          TABLE=$(uv run python -m coverage report --format=markdown 2>/dev/null || uv run python -m coverage report)
+          COMMENT_TAG="<!-- server-coverage -->"
+          EXISTING=$(gh pr view ${{ github.event.pull_request.number }} --json comments --jq ".comments[] | select(.body | contains(\"${COMMENT_TAG}\")) | .id" | head -1)
+          if [ -n "$EXISTING" ]; then
+            gh api graphql -f query="mutation { deleteIssueComment(input: {id: \"${EXISTING}\"}) { clientMutationId } }" 2>/dev/null || true
+          fi
+          BODY="${COMMENT_TAG}
+          ## Tests Coverage - Server
+          **Overall: ${TOTAL}%**
+
+          ${TABLE}"
+          gh pr comment ${{ github.event.pull_request.number }} --body "${BODY}"
 
   server-integration-tests:
     name: Server Integration Tests
@@ -85,8 +113,15 @@ jobs:
       - name: TypeScript check
         run: npx tsc --noEmit
 
-      - name: Run tests
-        run: npm test
+      - name: Run tests with coverage
+        run: npx vitest run --coverage
+
+      - name: Client coverage comment
+        if: github.event_name == 'pull_request'
+        uses: davelosert/vitest-coverage-report-action@v2
+        with:
+          working-directory: client
+          name: "Tests Coverage - Frontend"
 
   client-build:
     name: Client Build
