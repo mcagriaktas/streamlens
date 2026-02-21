@@ -1,4 +1,4 @@
-"""Fixtures for integration tests against real Kafka + Schema Registry."""
+"""Fixtures for integration tests against real Kafka + Schema Registry + Kafka Connect."""
 import json
 import os
 import time
@@ -10,6 +10,7 @@ from confluent_kafka.admin import AdminClient, NewTopic
 
 KAFKA_BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 SCHEMA_REGISTRY_URL = os.environ.get("SCHEMA_REGISTRY_URL", "http://localhost:8081")
+KAFKA_CONNECT_URL = os.environ.get("KAFKA_CONNECT_URL", "http://localhost:8083")
 
 
 def _wait_for_kafka(timeout=60):
@@ -41,11 +42,26 @@ def _wait_for_schema_registry(timeout=60):
     pytest.skip("Schema Registry not reachable — skipping integration tests")
 
 
+def _wait_for_kafka_connect(timeout=90):
+    """Block until Kafka Connect REST API is reachable."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            r = httpx.get(f"{KAFKA_CONNECT_URL}/connectors", timeout=5)
+            if r.status_code == 200:
+                return
+        except Exception:
+            pass
+        time.sleep(3)
+    pytest.skip("Kafka Connect not reachable — skipping integration tests")
+
+
 @pytest.fixture(scope="session", autouse=True)
 def wait_for_services():
-    """Wait for Kafka and Schema Registry before running any integration test."""
+    """Wait for Kafka, Schema Registry, and Kafka Connect before running any integration test."""
     _wait_for_kafka()
     _wait_for_schema_registry()
+    _wait_for_kafka_connect()
 
 
 @pytest.fixture(scope="session")
@@ -132,4 +148,40 @@ def cluster_config():
         "name": "integration-test",
         "bootstrapServers": KAFKA_BOOTSTRAP,
         "schemaRegistryUrl": SCHEMA_REGISTRY_URL,
+        "connectUrl": KAFKA_CONNECT_URL,
     }
+
+
+@pytest.fixture(scope="session")
+def test_connector(test_topics):
+    """Deploy a FileStreamSink connector that reads from inttest-orders. Cleaned up after session."""
+    connector_name = "inttest-file-sink"
+    connector_config = {
+        "name": connector_name,
+        "config": {
+            "connector.class": "org.apache.kafka.connect.file.FileStreamSinkConnector",
+            "tasks.max": "1",
+            "topics": "inttest-orders",
+            "file": "/tmp/inttest-orders-sink.txt",
+        },
+    }
+
+    with httpx.Client(timeout=15) as client:
+        r = client.put(
+            f"{KAFKA_CONNECT_URL}/connectors/{connector_name}/config",
+            json=connector_config["config"],
+            headers={"Content-Type": "application/json"},
+        )
+        r.raise_for_status()
+
+    # Give Connect time to start the task
+    time.sleep(3)
+
+    yield connector_name
+
+    # Cleanup
+    with httpx.Client(timeout=10) as client:
+        try:
+            client.delete(f"{KAFKA_CONNECT_URL}/connectors/{connector_name}")
+        except Exception:
+            pass

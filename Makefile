@@ -12,13 +12,13 @@ test-server:
 test-client:
 	cd client && npm test
 
-## Start Kafka + Schema Registry for integration tests
+## Start Kafka + Schema Registry + Kafka Connect for integration tests
 docker-up:
 	docker compose -f container/docker-compose.yml up -d
 	@echo "Waiting for services to be healthy..."
-	@for i in $$(seq 1 60); do \
-		healthy=$$(docker compose -f container/docker-compose.yml ps --format json 2>/dev/null | grep -c '"healthy"'); \
-		[ "$$healthy" -ge 2 ] && break || sleep 2; \
+	@for i in $$(seq 1 90); do \
+		healthy=$$(docker compose -f container/docker-compose.yml ps --format json 2>/dev/null | grep -o '"healthy"' | wc -l | tr -d ' '); \
+		[ "$$healthy" -ge 3 ] && break || sleep 2; \
 	done
 	docker compose -f container/docker-compose.yml ps
 

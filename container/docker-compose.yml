@@ -42,3 +42,20 @@ services:
       timeout: 10s
       retries: 10
       start_period: 10s
+
+  kafka-connect:
+    image: apache/kafka:3.9.2
+    ports:
+      - "8083:8083"
+    volumes:
+      - ./connect-distributed.properties:/opt/kafka/config/connect-distributed.properties:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: /opt/kafka/bin/connect-distributed.sh /opt/kafka/config/connect-distributed.properties
+    healthcheck:
+      test: wget -q -O /dev/null http://localhost:8083/connectors || exit 1
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
