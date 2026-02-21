@@ -1,19 +1,13 @@
-# Kafka Topology API (Python backend)
+# StreamLens Server
 
-FastAPI backend for the Kafka topology view app.
+FastAPI backend for StreamLens.
 
 ## Setup
 
 ```bash
 cd server
-uv sync   # or: pip install -e .
+uv sync
 ```
-
-**Clusters** are stored in `data/clusters.json` (no database). Override path with `CLUSTERS_JSON`. See project README for cluster and optional SSL config.
-
-Optional: `AI_INTEGRATIONS_OPENAI_API_KEY`, `AI_INTEGRATIONS_OPENAI_BASE_URL` for AI query.
-
-**Topology** uses real cluster data: topics and consumer groups from the broker (`bootstrapServers`). If you set `connectUrl` (Kafka Connect REST) and/or `schemaRegistryUrl` (Confluent Schema Registry), connectors and schema subjects are included. Add a cluster with valid bootstrap servers to see real topics in the topology view.
 
 ## Run
 
@@ -22,3 +16,11 @@ uv run uvicorn main:app --reload --port 5000
 ```
 
 Or: `uv run python main.py`
+
+## Configuration
+
+**Clusters** are stored in `data/clusters.json` (no database). Override the path with `CLUSTERS_JSON`. See the [project README](../README.md) for cluster config and SSL options.
+
+**AI Assistant** (optional) — supports OpenAI, Gemini, Anthropic, and Ollama. See [docs/AI_SETUP.md](../docs/AI_SETUP.md).
+
+**Topology** is built from live cluster data: topics and consumer groups from the broker, plus connectors (Kafka Connect) and schemas (Schema Registry) when configured. Snapshots refresh automatically every minute or on manual Sync.

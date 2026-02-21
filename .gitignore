@@ -24,3 +24,4 @@ server/debug/__pycache__/
 
 resources/logs/*
 .vscode/*
+.idea/*
