@@ -7,6 +7,7 @@
       "clusterType": "Apache Kafka",
       "schemaRegistryUrl": "http://localhost:8081",
       "connectUrl": "http://localhost:8083",
+      "prometheusUrl": "http://localhost:9090/",
       "jmxHost": "localhost",
       "jmxPort": 9999,
       "createdAt": "2026-02-04T00:00:00Z",

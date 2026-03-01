@@ -1,6 +1,6 @@
 import { memo, useState } from 'react';
 import { Handle, Position } from 'reactflow';
-import { Activity, Box, ArrowRightLeft, FileJson, GitBranch, Send, Sparkles, Shield, User, Zap, Code, Copy } from 'lucide-react';
+import { Activity, Box, ArrowRightLeft, FileJson, GitBranch, Send, Server, Sparkles, Shield, User, Zap, Code, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Tooltip,
@@ -94,6 +94,20 @@ const SourceBadge = ({ source }: { source?: string }) => {
         <div className="flex items-center gap-1 text-[10px] text-purple-700 dark:text-purple-400 bg-purple-100 dark:bg-purple-950/30 px-1.5 py-0.5 rounded border border-purple-300 dark:border-purple-900/50">
           <User className="w-3 h-3" />
           <span>Config</span>
+        </div>
+      );
+    case 'prometheus':
+      return (
+        <div className="flex items-center gap-1 text-[10px] text-orange-700 dark:text-orange-400 bg-orange-100 dark:bg-orange-950/30 px-1.5 py-0.5 rounded border border-orange-300 dark:border-orange-900/50">
+          <Activity className="w-3 h-3" />
+          <span>Prometheus</span>
+        </div>
+      );
+    case 'prometheus-broker':
+      return (
+        <div className="flex items-center gap-1 text-[10px] text-orange-700 dark:text-orange-400 bg-orange-100 dark:bg-orange-950/30 px-1.5 py-0.5 rounded border border-orange-300 dark:border-orange-900/50">
+          <Server className="w-3 h-3" />
+          <span>Prometheus</span>
         </div>
       );
     case 'jmx':
@@ -441,6 +455,22 @@ export default memo(({ data, selected }: { data: any, selected: boolean }) => {
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-xs break-words">
                   <p className="font-mono text-xs">{data.label}</p>
+                  {data.type === 'producer' && data.source && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Source: <span className="font-mono text-foreground">{
+                        data.source === 'prometheus' ? 'Prometheus (client)' :
+                        data.source === 'prometheus-broker' ? 'Prometheus (broker)' :
+                        data.source === 'jmx' ? 'JMX' :
+                        data.source === 'offset' ? 'Offset detection' :
+                        data.source
+                      }</span>
+                    </p>
+                  )}
+                  {data.type === 'producer' && data.clientId && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Client ID: <span className="font-mono text-foreground">{data.clientId}</span>
+                    </p>
+                  )}
                   {data.details && (
                     <p className="text-xs text-muted-foreground mt-1">
                       {data.type === 'topic' && `Partitions: ${data.details.partitions || 'N/A'}`}

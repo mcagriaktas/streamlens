@@ -182,6 +182,66 @@ class TestParseJsonFromText:
             ai_mod._parse_json_from_text("not valid json {")
 
 
+class TestIsMetricsQuestion:
+    """Tests for _is_metrics_question()."""
+
+    def test_throughput_question(self):
+        assert ai_mod._is_metrics_question("What is the current throughput?") is True
+
+    def test_latency_question(self):
+        assert ai_mod._is_metrics_question("What is the produce request latency?") is True
+
+    def test_under_replicated(self):
+        assert ai_mod._is_metrics_question("Are there under-replicated partitions?") is True
+
+    def test_messages_per_sec(self):
+        assert ai_mod._is_metrics_question("How many messages per sec?") is True
+
+    def test_bytes_in(self):
+        assert ai_mod._is_metrics_question("What are the bytes in per second?") is True
+
+    def test_cluster_health(self):
+        assert ai_mod._is_metrics_question("How is the cluster health?") is True
+
+    def test_non_metrics_question(self):
+        assert ai_mod._is_metrics_question("Which producers write to orders?") is False
+
+    def test_empty(self):
+        assert ai_mod._is_metrics_question("") is False
+
+    def test_metric_keyword(self):
+        assert ai_mod._is_metrics_question("Show me all metrics") is True
+
+
+class TestFetchMetricsContext:
+    """Tests for _fetch_metrics_context()."""
+
+    def test_no_cluster_id(self):
+        assert ai_mod._fetch_metrics_context(None) == ""
+
+    @patch("src.ai.get_cluster", return_value=None)
+    def test_cluster_not_found(self, _mock):
+        assert ai_mod._fetch_metrics_context(999) == ""
+
+    @patch("src.ai.get_cluster", return_value={"prometheusUrl": ""})
+    def test_no_prometheus_url(self, _mock):
+        result = ai_mod._fetch_metrics_context(1)
+        assert "not configured" in result
+
+    @patch("src.ai.fetch_metrics_from_prometheus", return_value=[{"name": "test", "category": "Cluster Health", "description": "test", "value": "0"}])
+    @patch("src.ai.format_metrics_for_prompt", return_value="Live metrics: test=0")
+    @patch("src.ai.get_cluster", return_value={"prometheusUrl": "http://prom:9090"})
+    def test_with_prometheus_returns_formatted(self, _c, _f, _m):
+        result = ai_mod._fetch_metrics_context(1)
+        assert "Live metrics" in result
+
+    @patch("src.ai.fetch_metrics_from_prometheus", return_value=[])
+    @patch("src.ai.get_cluster", return_value={"prometheusUrl": "http://prom:9090"})
+    def test_prometheus_returns_empty(self, _c, _f):
+        result = ai_mod._fetch_metrics_context(1)
+        assert "no metric data" in result
+
+
 class TestQueryTopology:
     """Tests for query_topology()."""
 
@@ -230,6 +290,40 @@ class TestQueryTopology:
 
         mock_query.assert_called_once()
         assert result["answer"] == "Topics: a, b."
+
+    def test_metrics_question_fetches_context(self, monkeypatch):
+        monkeypatch.setenv("AI_PROVIDER", "openai")
+        monkeypatch.setenv("AI_INTEGRATIONS_OPENAI_API_KEY", "sk-fake")
+        fake_response = {"answer": "Throughput is 1000 msg/s.", "highlightNodes": []}
+
+        with patch("src.ai._query_openai", return_value=fake_response) as mock_query, \
+             patch("src.ai._fetch_metrics_context", return_value="Live metrics: test=42") as mock_metrics:
+            result = ai_mod.query_topology(
+                "what is the current throughput?",
+                {"nodes": [], "edges": []},
+                cluster_id=1,
+            )
+
+        mock_metrics.assert_called_once_with(1)
+        mock_query.assert_called_once()
+        call_args = mock_query.call_args
+        assert call_args[0][2] == "Live metrics: test=42"
+        assert result["answer"] == "Throughput is 1000 msg/s."
+
+    def test_non_metrics_question_skips_fetch(self, monkeypatch):
+        monkeypatch.setenv("AI_PROVIDER", "openai")
+        monkeypatch.setenv("AI_INTEGRATIONS_OPENAI_API_KEY", "sk-fake")
+        fake_response = {"answer": "Topic orders exists.", "highlightNodes": []}
+
+        with patch("src.ai._query_openai", return_value=fake_response), \
+             patch("src.ai._fetch_metrics_context") as mock_metrics:
+            ai_mod.query_topology(
+                "show me topic orders",
+                {"nodes": [], "edges": []},
+                cluster_id=1,
+            )
+
+        mock_metrics.assert_not_called()
 
     # --- Error handling tests ---
 

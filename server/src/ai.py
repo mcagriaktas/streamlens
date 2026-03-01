@@ -1,6 +1,17 @@
-import os
 import json
+import logging
+import os
 import re
+from typing import Any
+
+from .kafka.metrics import (
+    fetch_metrics_from_prometheus,
+    format_metrics_for_prompt,
+    get_metrics_catalog_summary,
+)
+from .storage import get_cluster
+
+logger = logging.getLogger(__name__)
 
 # Provider: "openai" | "gemini" | "anthropic" | "ollama" from env, or auto-detect from which API key is set
 def _get_provider() -> str:
@@ -155,6 +166,8 @@ Still return the best-guess node ID in highlightNodes (e.g. "topic:treasury-hedg
 Current Topology Graph JSON:
 {topology_json}
 
+{metrics_context}
+
 User question:
 {question}
 
@@ -173,6 +186,7 @@ Important:
 - For questions about ACLs on a topic, include ACL node IDs (format: "acl:topic:topicname") and the topic node
 - Always include the full node ID as it appears in the graph (e.g., "topic:testtopic", "group:mygroup", "jmx:active-producer:testtopic", "schema:orders-value", "connect:file-source", "acl:topic:transactions-topic")
 - When the user asks to "navigate to", "show me", "get me to", or "find" a specific topic, ALWAYS include "topic:<name>" in highlightNodes even if it is not in the graph data
+- When the user asks about broker metrics, throughput, latency, replication, or cluster health, use the live metrics data provided above to answer with actual numbers.  If no metrics data is available, explain that Prometheus is not configured.
 
 Respond with ONLY a single JSON object, no other text or markdown. Use this exact structure:
 {{"answer": "Plain English explanation...", "highlightNodes": ["topic:orders", "group:checkout-consumer"]}}
@@ -188,9 +202,17 @@ def _parse_json_from_text(text: str) -> dict:
     return json.loads(text or "{}")
 
 
-def _query_openai(question: str, topology: dict) -> dict:
+def _build_prompt(question: str, topology: dict, metrics_context: str = "") -> str:
+    return PROMPT_TEMPLATE.format(
+        topology_json=json.dumps(topology),
+        question=question,
+        metrics_context=metrics_context,
+    )
+
+
+def _query_openai(question: str, topology: dict, metrics_context: str = "") -> dict:
     client = _get_openai_client()
-    prompt = PROMPT_TEMPLATE.format(topology_json=json.dumps(topology), question=question)
+    prompt = _build_prompt(question, topology, metrics_context)
     response = client.chat.completions.create(
         model=os.environ.get("AI_INTEGRATIONS_OPENAI_MODEL", "gpt-4o-mini"),
         messages=[
@@ -203,9 +225,9 @@ def _query_openai(question: str, topology: dict) -> dict:
     return json.loads(content)
 
 
-def _query_gemini(question: str, topology: dict) -> dict:
+def _query_gemini(question: str, topology: dict, metrics_context: str = "") -> dict:
     model = _get_gemini_model()
-    prompt = PROMPT_TEMPLATE.format(topology_json=json.dumps(topology), question=question)
+    prompt = _build_prompt(question, topology, metrics_context)
     response = model.generate_content(
         prompt,
         generation_config={"temperature": 0.2},
@@ -214,9 +236,9 @@ def _query_gemini(question: str, topology: dict) -> dict:
     return _parse_json_from_text(text)
 
 
-def _query_anthropic(question: str, topology: dict) -> dict:
+def _query_anthropic(question: str, topology: dict, metrics_context: str = "") -> dict:
     client = _get_anthropic_client()
-    prompt = PROMPT_TEMPLATE.format(topology_json=json.dumps(topology), question=question)
+    prompt = _build_prompt(question, topology, metrics_context)
     model = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_MODEL", "claude-3-5-haiku-20241022")
     message = client.messages.create(
         model=model,
@@ -231,11 +253,10 @@ def _query_anthropic(question: str, topology: dict) -> dict:
     return _parse_json_from_text(text)
 
 
-def _query_ollama(question: str, topology: dict) -> dict:
+def _query_ollama(question: str, topology: dict, metrics_context: str = "") -> dict:
     client = _get_ollama_client()
-    prompt = PROMPT_TEMPLATE.format(topology_json=json.dumps(topology), question=question)
+    prompt = _build_prompt(question, topology, metrics_context)
     model = os.environ.get("OLLAMA_MODEL", "llama3.2")
-    # Ollama's OpenAI-compatible API; many models don't support response_format so we parse text
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -247,19 +268,69 @@ def _query_ollama(question: str, topology: dict) -> dict:
     return _parse_json_from_text(content)
 
 
-def query_topology(question: str, topology: dict) -> dict:
+_METRICS_KEYWORDS = re.compile(
+    r"\b(metrics?|throughput|latency|bytes.?in|bytes.?out|messages?.?in|isr|"
+    r"under.?replicated|offline.?partition|request.?rate|produce.?rate|"
+    r"fetch.?rate|leader.?count|partition.?count|log.?size|replication|"
+    r"broker.?health|cluster.?health|performance|load|traffic|"
+    r"messages?.per.?sec|bytes?.per.?sec|"
+    # request timing / rate patterns
+    r"produce.?request|fetch.?request|request.?time|response.?time|"
+    r"avg.?time|average.?time|total.?time|"
+    # general broker / capacity
+    r"how\s+many\s+partitions?|how\s+many\s+leaders?|how\s+many\s+brokers?|"
+    r"controller|replica|broker.?state|"
+    r"msg.?rate|message.?rate|"
+    r"produce.?time|fetch.?time|consumer.?lag|"
+    r"network.?idle|queue.?size)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_metrics_question(question: str) -> bool:
+    """Return True if the question is about broker metrics / performance."""
+    return bool(_METRICS_KEYWORDS.search(question or ""))
+
+
+def _fetch_metrics_context(cluster_id: int | None) -> str:
+    """Look up the cluster's prometheusUrl and fetch live metrics if available."""
+    if not cluster_id:
+        return ""
+    try:
+        cluster = get_cluster(cluster_id)
+        if not cluster:
+            return ""
+        prometheus_url = (cluster.get("prometheusUrl") or "").strip().rstrip("/")
+        if not prometheus_url:
+            return get_metrics_catalog_summary() + "\n\nNote: Prometheus is not configured for this cluster. Configure prometheusUrl in the cluster settings to enable live metric queries."
+
+        metrics = fetch_metrics_from_prometheus(prometheus_url)
+        if metrics:
+            return format_metrics_for_prompt(metrics)
+        return get_metrics_catalog_summary() + "\n\nNote: Prometheus returned no metric data. The exporter may not be running."
+    except Exception as e:
+        logger.warning("Failed to fetch metrics context: %s", e)
+        return ""
+
+
+def query_topology(question: str, topology: dict, cluster_id: int | None = None) -> dict:
     if _is_mutating_request(question):
         return dict(READ_ONLY_DECLINE)
+
+    metrics_context = ""
+    if _is_metrics_question(question):
+        metrics_context = _fetch_metrics_context(cluster_id)
+
     provider = _get_provider()
     try:
         if provider == "gemini":
-            result = _query_gemini(question, topology)
+            result = _query_gemini(question, topology, metrics_context)
         elif provider == "anthropic":
-            result = _query_anthropic(question, topology)
+            result = _query_anthropic(question, topology, metrics_context)
         elif provider == "ollama":
-            result = _query_ollama(question, topology)
+            result = _query_ollama(question, topology, metrics_context)
         else:
-            result = _query_openai(question, topology)
+            result = _query_openai(question, topology, metrics_context)
         if "highlightNodes" not in result:
             result["highlightNodes"] = []
         if "answer" not in result:

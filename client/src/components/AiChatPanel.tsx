@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 interface AiChatPanelProps {
   topology: any;
+  clusterId?: number;
   onHighlightNodes: (nodeIds: string[]) => void;
   /** Fallback: search the full cluster for a topic when AI can't find it in loaded nodes */
   onSearchAndNavigate?: (query: string) => Promise<void>;
@@ -28,12 +29,12 @@ const PROVIDER_LABELS: Record<string, string> = {
   ollama: "Ollama",
 };
 
-export function AiChatPanel({ topology, onHighlightNodes, onSearchAndNavigate }: AiChatPanelProps) {
+export function AiChatPanel({ topology, clusterId, onHighlightNodes, onSearchAndNavigate }: AiChatPanelProps) {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([
     { 
       role: "assistant", 
-      content: "👋 Hi! I'm StreamPilot, your AI assistant for navigating Kafka topologies. I can answer questions and automatically highlight & zoom to relevant nodes.\n\nTry asking:\n• 'Which producers write to testtopic?'\n• 'Show me all consumers of orders topic'\n• 'What topics does my-app produce to?'\n• 'Which topics have registered schemas?'\n• 'Do we have any source or sink connectors?'",
+      content: "👋 Hi! I'm StreamPilot, your AI assistant for navigating Kafka topologies. I can answer questions, highlight & zoom to relevant nodes, and query live broker metrics.\n\nTry asking:\n• 'Which producers write to testtopic?'\n• 'Show me all consumers of orders topic'\n• 'What is the current message throughput?'\n• 'Are there any under-replicated partitions?'\n• 'What is the produce request latency?'\n• 'Which topics have registered schemas?'",
       timestamp: Date.now() 
     }
   ]);
@@ -59,7 +60,8 @@ export function AiChatPanel({ topology, onHighlightNodes, onSearchAndNavigate }:
     try {
       const result = await aiQuery.mutateAsync({
         question: userMessage.content,
-        topology: topology.data || topology, // Handle structure
+        topology: topology.data || topology,
+        clusterId,
       });
 
       const aiMessage: Message = { role: "assistant", content: result.answer, timestamp: Date.now() };

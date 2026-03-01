@@ -98,6 +98,7 @@ def _cluster_from_row(c: dict) -> dict:
         "connectUrl": _resolve(c, "connectUrl", "connect_url"),
         "jmxHost": _resolve(c, "jmxHost", "jmx_host"),
         "jmxPort": _resolve(c, "jmxPort", "jmx_port"),
+        "prometheusUrl": _resolve(c, "prometheusUrl", "prometheus_url"),
         "createdAt": _resolve(c, "createdAt", "created_at") or "",
         "enableKafkaEventProduceFromUi": _bool_from(
             _resolve(c, "enableKafkaEventProduceFromUi", "enable_kafka_event_produce_from_ui")

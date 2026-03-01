@@ -41,6 +41,7 @@ class CreateClusterBody(BaseModel):
 class AiQueryBody(BaseModel):
     question: str
     topology: dict
+    clusterId: int | None = None
 
 
 class ProduceMessageBody(BaseModel):
@@ -414,7 +415,7 @@ def get_consumer_lag(id: int, group_id: str):
 @app.post("/api/ai/query")
 def ai_query(body: AiQueryBody):
     try:
-        return query_topology(body.question, body.topology)
+        return query_topology(body.question, body.topology, body.clusterId)
     except Exception as e:
         print(e)
         raise HTTPException(status_code=500, detail="AI processing failed")

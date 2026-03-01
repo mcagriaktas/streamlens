@@ -1175,7 +1175,8 @@ function TopologyContent({ clusterId }: { clusterId: number }) {
         {/* Right Sidebar - AI Chat */}
         <div className="w-[400px] shrink-0 border-l border-border bg-card">
           <AiChatPanel 
-            topology={snapshot} 
+            topology={snapshot}
+            clusterId={clusterId}
             onHighlightNodes={highlightNodes}
             onSearchAndNavigate={searchAndNavigate}
           />
