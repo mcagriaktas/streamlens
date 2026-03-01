@@ -150,6 +150,7 @@ export const api = {
       input: z.object({
         question: z.string(),
         topology: z.any(),
+        clusterId: z.number().optional(),
       }),
       responses: {
         200: aiQueryResponseSchema,

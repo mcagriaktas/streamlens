@@ -93,9 +93,10 @@ def _clean_label(label: str, prefixes: list[tuple[str, str]]) -> str:
 
 
 _PRODUCER_EDGE_STYLES: dict[str, tuple[dict, bool]] = {
-    "acl":    ({"strokeDasharray": "5,5"}, False),
-    "jmx":    ({"strokeDasharray": "2,2"}, True),
-    "offset": ({"strokeDasharray": "3,3"}, True),
+    "jmx":               ({"strokeDasharray": "2,2"}, True),
+    "offset":            ({"strokeDasharray": "3,3"}, True),
+    "prometheus":        ({"strokeDasharray": "2,2"}, True),
+    "prometheus-broker": ({"strokeDasharray": "2,2"}, True),
 }
 
 
@@ -105,15 +106,20 @@ def _build_producer_nodes(state: dict) -> tuple[list[dict], list[dict]]:
         source = p.get("source", "unknown")
         label = _clean_label(p.get("label") or p["id"], [
             ("app:", ""),
-            ("acl:", ""),
+            ("prometheus:", ""),
+            ("prometheus-broker:active-producer:", "Active → "),
             ("jmx:active-producer:", "Active → "),
             ("offset:active-producer:", "Active → "),
         ])
 
+        data: dict[str, Any] = {"label": label, "source": source, "principal": p.get("principal")}
+        if p.get("clientId"):
+            data["clientId"] = p["clientId"]
+
         nodes.append({
             "id": p["id"],
             "type": "producer",
-            "data": {"label": label, "source": source, "principal": p.get("principal")},
+            "data": data,
         })
 
         style, animated = _PRODUCER_EDGE_STYLES.get(source, ({}, True))

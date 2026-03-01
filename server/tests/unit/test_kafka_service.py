@@ -125,25 +125,22 @@ class TestFetchSystemState:
         assert state["consumers"] == []
 
     @patch("src.kafka.service.fetch_jmx_producers", return_value=[])
-    @patch("src.kafka.service.fetch_acl_producers", return_value=[])
     @patch("src.kafka.service.detect_producers_by_offset_change", return_value=[])
     @patch("src.kafka.service.AdminClient")
     @patch("src.kafka.service.client_config")
     @patch("src.kafka.service.fetch_topics")
     @patch("src.kafka.service.fetch_consumer_groups")
     @patch("src.kafka.service.fetch_topic_acls")
-    @patch("src.kafka.service.load_streams_config")
     @patch("src.kafka.service.fetch_connectors")
     @patch("src.kafka.service.fetch_schemas")
     def test_fetch_system_state_full(
-        self, mock_schemas, mock_connectors, mock_streams, mock_acls, mock_consumers,
-        mock_topics, mock_cfg, mock_admin_cls, mock_offset, mock_acl_prod, mock_jmx, service,
+        self, mock_schemas, mock_connectors, mock_acls, mock_consumers,
+        mock_topics, mock_cfg, mock_admin_cls, mock_offset, mock_jmx, service,
     ):
         mock_cfg.return_value = {"bootstrap.servers": "localhost:9092"}
         mock_topics.return_value = [{"name": "orders", "partitions": 3}]
         mock_consumers.return_value = [{"id": "group:cg1"}]
         mock_acls.return_value = []
-        mock_streams.return_value = []
         mock_connectors.return_value = [{"id": "connect:my-sink"}]
         mock_schemas.return_value = [{"subject": "orders-value"}]
 
@@ -158,22 +155,19 @@ class TestFetchSystemState:
         assert len(state["schemas"]) == 1
 
     @patch("src.kafka.service.fetch_jmx_producers", return_value=[])
-    @patch("src.kafka.service.fetch_acl_producers", return_value=[])
     @patch("src.kafka.service.detect_producers_by_offset_change", return_value=[])
     @patch("src.kafka.service.AdminClient")
     @patch("src.kafka.service.client_config")
     @patch("src.kafka.service.fetch_topics")
     @patch("src.kafka.service.fetch_consumer_groups")
     @patch("src.kafka.service.fetch_topic_acls")
-    @patch("src.kafka.service.load_streams_config")
-    def test_connect_unreachable_connectors_empty(self, mock_streams, mock_acls, mock_consumers,
+    def test_connect_unreachable_connectors_empty(self, mock_acls, mock_consumers,
                                                   mock_topics, mock_cfg, mock_admin_cls,
-                                                  mock_offset, mock_acl_prod, mock_jmx, service):
+                                                  mock_offset, mock_jmx, service):
         mock_cfg.return_value = {"bootstrap.servers": "localhost:9092"}
         mock_topics.return_value = []
         mock_consumers.return_value = []
         mock_acls.return_value = []
-        mock_streams.return_value = []
 
         with patch("src.kafka.service.fetch_connectors", side_effect=Exception("Connection refused")):
             cluster = _cluster(connectUrl="http://localhost:8083")
@@ -182,22 +176,19 @@ class TestFetchSystemState:
         assert state["connectors"] == []
 
     @patch("src.kafka.service.fetch_jmx_producers", return_value=[])
-    @patch("src.kafka.service.fetch_acl_producers", return_value=[])
     @patch("src.kafka.service.detect_producers_by_offset_change", return_value=[])
     @patch("src.kafka.service.AdminClient")
     @patch("src.kafka.service.client_config")
     @patch("src.kafka.service.fetch_topics")
     @patch("src.kafka.service.fetch_consumer_groups")
     @patch("src.kafka.service.fetch_topic_acls")
-    @patch("src.kafka.service.load_streams_config")
-    def test_schema_registry_unreachable_schemas_empty(self, mock_streams, mock_acls, mock_consumers,
+    def test_schema_registry_unreachable_schemas_empty(self, mock_acls, mock_consumers,
                                                        mock_topics, mock_cfg, mock_admin_cls,
-                                                       mock_offset, mock_acl_prod, mock_jmx, service):
+                                                       mock_offset, mock_jmx, service):
         mock_cfg.return_value = {"bootstrap.servers": "localhost:9092"}
         mock_topics.return_value = []
         mock_consumers.return_value = []
         mock_acls.return_value = []
-        mock_streams.return_value = []
 
         with patch("src.kafka.service.fetch_schemas", side_effect=Exception("Connection refused")):
             cluster = _cluster(schemaRegistryUrl="http://localhost:8081")
@@ -218,11 +209,13 @@ class TestFetchSystemState:
 
 
 class TestCollectProducers:
-    """Tests for _collect_producers(cluster, admin, cfg, topics)."""
+    """Tests for _collect_producers(cluster, admin, cfg, topics).
+
+    Fallback chain: Prometheus client → Prometheus broker → JMX → Offset.
+    """
 
     @patch("src.kafka.service.detect_producers_by_offset_change", return_value=[])
-    @patch("src.kafka.service.fetch_acl_producers", return_value=[])
-    def test_no_jmx_falls_back_to_offset_detection(self, mock_acl, mock_offset, service):
+    def test_no_sources_configured_falls_back_to_offset(self, mock_offset, service):
         mock_admin = MagicMock()
         topics = [{"name": "orders", "partitions": 1}]
         producers = service._collect_producers(_cluster(), mock_admin, {"bootstrap.servers": "x"}, topics)
@@ -230,9 +223,8 @@ class TestCollectProducers:
         assert producers == []
 
     @patch("src.kafka.service.detect_producers_by_offset_change")
-    @patch("src.kafka.service.fetch_acl_producers", return_value=[])
     @patch("src.kafka.service.fetch_jmx_producers", return_value=[{"id": "jmx:orders"}])
-    def test_jmx_succeeds_skips_offset_detection(self, mock_jmx, mock_acl, mock_offset, service):
+    def test_jmx_succeeds_skips_offset(self, mock_jmx, mock_offset, service):
         mock_admin = MagicMock()
         topics = [{"name": "orders", "partitions": 1}]
         producers = service._collect_producers(
@@ -243,20 +235,74 @@ class TestCollectProducers:
         assert len(producers) == 1
         assert producers[0]["id"] == "jmx:orders"
 
-    @patch("src.kafka.service.detect_producers_by_offset_change", return_value=[{"id": "offset:p1"}])
-    @patch("src.kafka.service.fetch_acl_producers", return_value=[{"id": "acl:alice"}])
-    @patch("src.kafka.service.fetch_jmx_producers", return_value=[{"id": "jmx:orders"}])
-    def test_jmx_and_acl_producers_combined(self, mock_jmx, mock_acl, mock_offset, service):
+    @patch("src.kafka.service.detect_producers_by_offset_change")
+    @patch("src.kafka.service.fetch_jmx_producers")
+    @patch("src.kafka.service.fetch_prometheus_broker_producers")
+    @patch("src.kafka.service.fetch_prometheus_producers", return_value=[
+        {"id": "prometheus:app-1", "producesTo": ["orders"], "source": "prometheus", "clientId": "app-1"},
+    ])
+    def test_prometheus_client_succeeds_skips_all(self, mock_prom, mock_prom_broker, mock_jmx, mock_offset, service):
         mock_admin = MagicMock()
         topics = [{"name": "orders", "partitions": 1}]
         producers = service._collect_producers(
-            _cluster(jmxHost="localhost", jmxPort=9999),
+            _cluster(prometheusUrl="http://prometheus:9090", jmxHost="localhost", jmxPort=9999),
             mock_admin, {"bootstrap.servers": "x"}, topics,
         )
-        assert len(producers) == 2
-        ids = {p["id"] for p in producers}
-        assert "jmx:orders" in ids
-        assert "acl:alice" in ids
+        mock_prom_broker.assert_not_called()
+        mock_jmx.assert_not_called()
+        mock_offset.assert_not_called()
+        assert len(producers) == 1
+        assert producers[0]["clientId"] == "app-1"
+
+    @patch("src.kafka.service.detect_producers_by_offset_change")
+    @patch("src.kafka.service.fetch_jmx_producers")
+    @patch("src.kafka.service.fetch_prometheus_broker_producers", return_value=[
+        {"id": "prometheus-broker:active-producer:orders", "source": "prometheus-broker"},
+    ])
+    @patch("src.kafka.service.fetch_prometheus_producers", return_value=[])
+    def test_prometheus_client_empty_falls_back_to_broker(self, mock_prom, mock_prom_broker, mock_jmx, mock_offset, service):
+        mock_admin = MagicMock()
+        topics = [{"name": "orders", "partitions": 1}]
+        producers = service._collect_producers(
+            _cluster(prometheusUrl="http://prometheus:9090"),
+            mock_admin, {"bootstrap.servers": "x"}, topics,
+        )
+        mock_prom_broker.assert_called_once()
+        mock_jmx.assert_not_called()
+        mock_offset.assert_not_called()
+        assert len(producers) == 1
+        assert producers[0]["source"] == "prometheus-broker"
+
+    @patch("src.kafka.service.detect_producers_by_offset_change")
+    @patch("src.kafka.service.fetch_jmx_producers", return_value=[{"id": "jmx:orders"}])
+    @patch("src.kafka.service.fetch_prometheus_broker_producers", return_value=[])
+    @patch("src.kafka.service.fetch_prometheus_producers", return_value=[])
+    def test_prometheus_both_empty_falls_back_to_jmx(self, mock_prom, mock_prom_broker, mock_jmx, mock_offset, service):
+        mock_admin = MagicMock()
+        topics = [{"name": "orders", "partitions": 1}]
+        producers = service._collect_producers(
+            _cluster(prometheusUrl="http://prometheus:9090", jmxHost="localhost", jmxPort=9999),
+            mock_admin, {"bootstrap.servers": "x"}, topics,
+        )
+        mock_jmx.assert_called_once()
+        mock_offset.assert_not_called()
+        assert len(producers) == 1
+        assert producers[0]["id"] == "jmx:orders"
+
+    @patch("src.kafka.service.detect_producers_by_offset_change", return_value=[{"id": "offset:orders"}])
+    @patch("src.kafka.service.fetch_jmx_producers", return_value=[])
+    @patch("src.kafka.service.fetch_prometheus_broker_producers", return_value=[])
+    @patch("src.kafka.service.fetch_prometheus_producers", return_value=[])
+    def test_all_empty_falls_back_to_offset(self, mock_prom, mock_prom_broker, mock_jmx, mock_offset, service):
+        mock_admin = MagicMock()
+        topics = [{"name": "orders", "partitions": 1}]
+        producers = service._collect_producers(
+            _cluster(prometheusUrl="http://prometheus:9090", jmxHost="localhost", jmxPort=9999),
+            mock_admin, {"bootstrap.servers": "x"}, topics,
+        )
+        mock_offset.assert_called_once()
+        assert len(producers) == 1
+        assert producers[0]["id"] == "offset:orders"
 
 
 class TestDelegationMethods:

@@ -10,6 +10,10 @@
   <img src="resources/StreamLens.gif" alt="StreamLens" width="700" />
 </p>
 
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=lQIdaqVqgtk">Watch the full setup and demo on YouTube</a>
+</p>
+
 ## Features
 
 - **Live topology visualization** — Interactive graph of your Kafka cluster powered by React Flow
@@ -18,12 +22,11 @@
 - **Consumer lag** — Click any consumer node to view per-partition lag
 - **Topic details** — Click any topic node to view configuration, recent messages, and generate sample client code (Java / Python)
 - **Connector details** — Click connector nodes to inspect configuration (sensitive values masked)
-- **Kafka Streams** — Visualize stream processing pipelines (input → output) via `streams.yaml`
-- **Producer detection** — Via JMX metrics, ACL WRITE permissions, or offset-change detection
+- **Producer detection** — Via JMX metrics or offset-change detection (automatic fallback chain)
 - **Search & navigation** — Find nodes by name or type, auto-zoom to matches, keyboard navigation (Enter / Shift+Enter)
 - **Topic pagination** — Large clusters load incrementally (connected topics first), with search across all topics
 - **Produce messages** — Optionally produce messages from the UI (disabled by default, per-cluster opt-in)
-- **AI assistant (StreamPilot)** — Ask questions about your topology; highlights and zooms to relevant nodes. Supports OpenAI, Gemini, Anthropic, and Ollama
+- **AI assistant (StreamPilot)** — Ask questions about your topology and live broker metrics; highlights and zooms to relevant nodes. Supports OpenAI, Gemini, Anthropic, and Ollama
 - **Dark / light theme** — Toggle between themes
 
 ## Quick Start
@@ -80,11 +83,23 @@ Clusters are stored in `server/data/clusters.json` (no database required). Add c
       "name": "My Cluster",
       "bootstrapServers": "localhost:9092",
       "schemaRegistryUrl": "http://localhost:8081",
-      "connectUrl": "http://localhost:8083"
+      "connectUrl": "http://localhost:8083",
+      "prometheusUrl": "http://prometheus:9090",
+      "jmxHost": "localhost",
+      "jmxPort": 9999
     }
   ]
 }
 ```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `bootstrapServers` | Yes | Kafka broker address(es) |
+| `schemaRegistryUrl` | No | Schema Registry URL (enables schema nodes) |
+| `connectUrl` | No | Kafka Connect REST URL (enables connector nodes) |
+| `prometheusUrl` | No | Prometheus URL — enables AI-powered broker metric queries and producer detection per client ID. **If set, `jmxHost`/`jmxPort` are not required.** |
+| `jmxHost` / `jmxPort` | No | Broker JMX endpoint — fallback for producer detection when Prometheus is not available |
+| `enableKafkaEventProduceFromUi` | No | Allow producing messages from the UI (default: `false`) |
 
 Override the file path with the `CLUSTERS_JSON` env var.
 
@@ -115,17 +130,50 @@ kafka-acls.sh --bootstrap-server localhost:9092 \
 
 Replace `User:streamlens` with your actual principal.
 
-### JMX Producer Detection (Optional)
+### Producer Detection
 
-Enable JMX on your Kafka brokers to detect active producers in real-time:
+StreamLens detects producers using an automatic fallback chain. Only the first source that returns results is used:
+
+| Priority | Source | Granularity | Config field |
+|----------|--------|-------------|--------------|
+| 1 | **Prometheus (client-side)** | Per client ID + topic | `prometheusUrl` |
+| 2 | **Prometheus (broker-side)** | Per topic (aggregate) | `prometheusUrl` |
+| 3 | **Broker JMX** | Per topic (aggregate) | `jmxHost` + `jmxPort` |
+| 4 | **Offset change** | Per topic (needs 2 syncs) | _(automatic)_ |
+
+> **Tip:** If `prometheusUrl` is configured, `jmxHost` and `jmxPort` are not required. Prometheus covers both client-side (per producer client ID) and broker-side (per topic) detection, plus AI-powered broker metric queries.
+
+**Prometheus (recommended)** — Run the [JMX Exporter](https://github.com/prometheus/jmx_exporter) as a Java agent on the **Kafka brokers** (for broker-side producer detection and AI metric queries) and optionally on **producer applications** (for per-client-id detection). StreamLens first tries `kafka_producer_topic_metrics_record_send_total` grouped by `client_id` and `topic`. If no client-side metrics are found, it falls back to broker-side `kafka_server_brokertopicmetrics_messagesinpersec` per topic — no JMX port needed for either.
+
+**Broker JMX** — Falls back to broker-side `MessagesInPerSec` metrics (one producer node per active topic, no client IDs). Only needed if Prometheus is not configured:
 
 1. Start Kafka with `JMX_PORT=9999`
-2. Set `jmxHost` and `jmxPort` in the cluster config (or use `server/debug/configure_jmx.py`)
+2. Set `jmxHost` and `jmxPort` in the cluster config
 3. Restart the backend and click Sync
 
 ### AI Assistant (Optional)
 
 See [docs/AI_SETUP.md](docs/AI_SETUP.md) for configuring the StreamPilot AI chat (OpenAI, Gemini, Anthropic, or Ollama).
+
+**AI Broker Metrics** — When `prometheusUrl` is configured and the JMX Exporter is running on the Kafka brokers, the AI assistant can answer questions about live **broker metrics**. Ask questions like:
+
+- "What is the current message throughput?"
+- "Are there any under-replicated partitions?"
+- "What is the avg time to handle a produce request?"
+- "How many partitions do we have?"
+- "Show me all metrics"
+
+StreamLens queries a curated set of 17 broker metrics from Prometheus across 5 categories:
+
+| Category | Example metrics |
+|----------|----------------|
+| Cluster Health | Under-replicated partitions, active controller count, offline partitions |
+| Throughput | Messages in/sec (total and per topic), bytes in/out per sec |
+| Request Performance | Produce/fetch request rate, produce/fetch avg latency |
+| Broker Resources | Partition count, leader count, log size |
+| Replication | ISR shrinks/expands per sec |
+
+See `server/src/kafka/metrics.py` for the full catalog and PromQL queries.
 
 ## Environment Variables
 

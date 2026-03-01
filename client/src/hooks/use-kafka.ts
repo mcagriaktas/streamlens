@@ -210,7 +210,7 @@ export function useAiStatus() {
 
 export function useAiQuery() {
   return useMutation({
-    mutationFn: async (data: { question: string; topology: any }) => {
+    mutationFn: async (data: { question: string; topology: any; clusterId?: number }) => {
       const res = await fetch(`${API_BASE}${api.ai.query.path}`, {
         method: api.ai.query.method,
         headers: { "Content-Type": "application/json" },

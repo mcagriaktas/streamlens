@@ -8,9 +8,13 @@ from .acls import fetch_topic_acls
 from .config import client_config
 from .connectors import fetch_connector_details, fetch_connectors
 from .consumers import fetch_consumer_groups, fetch_consumer_lag
-from .producers import detect_producers_by_offset_change, fetch_acl_producers, fetch_jmx_producers
+from .producers import (
+    detect_producers_by_offset_change,
+    fetch_jmx_producers,
+    fetch_prometheus_broker_producers,
+    fetch_prometheus_producers,
+)
 from .schemas import fetch_schema_details, fetch_schemas
-from .streams import load_streams_config
 from .topics import fetch_topic_details, fetch_topics, produce_message
 
 logger = logging.getLogger(__name__)
@@ -70,7 +74,7 @@ class KafkaService:
 
             topic_names = [t["name"] for t in state["topics"] if not (t.get("name") or "").startswith("__")]
             state["acls"] = fetch_topic_acls(admin, topic_names)
-            state["streams"] = load_streams_config()
+            state["streams"] = []
         except Exception as e:
             logger.exception("Kafka broker error: %s", e)
             raise RuntimeError(f"Cannot connect to Kafka at {bootstrap}: {e}") from e
@@ -115,19 +119,37 @@ class KafkaService:
         cluster: dict[str, Any], admin: AdminClient, cfg: dict, topics: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         producers: list[dict[str, Any]] = []
-        jmx_succeeded = False
+        detected = False
 
-        jmx_host = cluster.get("jmxHost")
-        jmx_port = cluster.get("jmxPort")
-        if jmx_host and jmx_port:
-            jmx_producers = fetch_jmx_producers(jmx_host, jmx_port)
-            if jmx_producers:
-                jmx_succeeded = True
-            producers.extend(jmx_producers)
+        prometheus_url = (cluster.get("prometheusUrl") or "").strip().rstrip("/")
 
-        producers.extend(fetch_acl_producers(admin))
+        # Option 1: Prometheus client-side (per-client-id + topic, best granularity)
+        if prometheus_url:
+            prom_producers = fetch_prometheus_producers(prometheus_url)
+            if prom_producers:
+                producers.extend(prom_producers)
+                detected = True
 
-        if not jmx_succeeded:
+        # Option 2: Prometheus broker-side (per-topic, same as JMX but via Prometheus)
+        if not detected and prometheus_url:
+            topic_names = [t["name"] for t in topics if not (t.get("name") or "").startswith("__")]
+            broker_producers = fetch_prometheus_broker_producers(prometheus_url, topic_names)
+            if broker_producers:
+                producers.extend(broker_producers)
+                detected = True
+
+        # Option 3: Broker JMX (per-topic, only if Prometheus is not configured)
+        if not detected:
+            jmx_host = cluster.get("jmxHost")
+            jmx_port = cluster.get("jmxPort")
+            if jmx_host and jmx_port:
+                jmx_producers = fetch_jmx_producers(jmx_host, jmx_port)
+                if jmx_producers:
+                    producers.extend(jmx_producers)
+                    detected = True
+
+        # Option 4: Offset-change heuristic (per-topic, needs two syncs)
+        if not detected:
             producers.extend(detect_producers_by_offset_change(cluster.get("id", 0), cfg, topics))
 
         logger.info("Topology state: %d producers (will appear in UI after Sync)", len(producers))
