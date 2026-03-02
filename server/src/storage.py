@@ -71,6 +71,9 @@ _SSL_FIELD_ALIASES: list[tuple[str, ...]] = [
     ("sslKeystoreLocation", "ssl_keystore_location"),
     ("sslKeystoreType", "ssl_keystore_type"),
     ("sslKeystorePassword", "ssl_keystore_password"),
+    ("saslMechanism", "sasl_mechanism"),
+    ("saslUsername", "sasl_username"),
+    ("saslPassword", "sasl_password"),
 ]
 
 
@@ -237,6 +240,7 @@ _SENSITIVE_FIELDS = {
     "sslTruststoreLocation", "sslTruststorePassword", "sslKeystoreLocation",
     "sslKeystoreType", "sslKeystorePassword", "sslEndpointIdentificationAlgorithm",
     "enableSslCertificateVerification",
+    "saslUsername", "saslPassword", "saslMechanism",
 }
 
 

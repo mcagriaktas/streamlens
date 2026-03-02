@@ -162,7 +162,8 @@ def client_config(cluster: dict) -> dict:
     _apply_ssl_endpoint_id(cfg, cluster)
     skip_verify = _apply_ssl_verification(cfg, cluster)
     _apply_ssl_certs(cfg, cluster, skip_verify)
-
+    _apply_sasl(cfg, cluster)
+    
     return cfg
 
 
@@ -230,3 +231,26 @@ def _apply_ssl_certs(cfg: dict, cluster: dict, skip_verify: bool) -> None:
         key_pw = cluster.get("sslKeyPassword") or cluster.get("ssl_key_password")
         if key_pw:
             cfg["ssl.key.password"] = key_pw
+
+
+_VALID_SASL_MECHANISMS = {"PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512", "OAUTHBEARER"}
+
+def _apply_sasl(cfg: dict, cluster: dict) -> None:
+    mechanism = cluster.get("saslMechanism") or cluster.get("sasl_mechanism")
+    if mechanism:
+        value = mechanism.strip()
+        if value not in _VALID_SASL_MECHANISMS:
+            raise ValueError(
+                f"Invalid saslMechanism: {value!r}. "
+                f"Must be one of: {', '.join(sorted(_VALID_SASL_MECHANISMS))}"
+            )
+        cfg["sasl.mechanism"] = value
+        logger.info("SASL mechanism: %r", value)
+
+    username = cluster.get("saslUsername") or cluster.get("sasl_username")
+    if username:
+        cfg["sasl.username"] = username.strip()
+
+    password = cluster.get("saslPassword") or cluster.get("sasl_password")
+    if password:
+        cfg["sasl.password"] = password
