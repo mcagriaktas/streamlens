@@ -4,6 +4,8 @@ import logging
 import os
 import subprocess
 import tempfile
+import time
+import httpx
 from pathlib import Path
 from typing import Any
 
@@ -236,6 +238,7 @@ def _apply_ssl_certs(cfg: dict, cluster: dict, skip_verify: bool) -> None:
 _VALID_SASL_MECHANISMS = {"PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512", "OAUTHBEARER"}
 
 def _apply_sasl(cfg: dict, cluster: dict) -> None:
+    """Apply SASL authentication settings (PLAIN, SCRAM, OAUTHBEARER)."""
     mechanism = cluster.get("saslMechanism") or cluster.get("sasl_mechanism")
     if mechanism:
         value = mechanism.strip()
@@ -254,3 +257,111 @@ def _apply_sasl(cfg: dict, cluster: dict) -> None:
     password = cluster.get("saslPassword") or cluster.get("sasl_password")
     if password:
         cfg["sasl.password"] = password
+
+    if mechanism == "OAUTHBEARER":
+        _apply_sasl_oauthbearer(cfg, cluster)
+
+
+def _apply_sasl_oauthbearer(cfg: dict, cluster: dict) -> None:
+    """Apply OAuthBearer / OIDC settings.
+
+    Uses a Python ``oauth_cb`` callback (httpx) to fetch tokens instead of
+    librdkafka's built-in OIDC, which has OpenSSL 3.0 compatibility issues
+    (``STORE routines::unregistered scheme``).
+
+    When OIDC credentials (clientId + clientSecret + tokenEndpointUrl) are
+    present, the callback handles the token fetch.  Otherwise falls back to
+    raw ``sasl.oauthbearer.config`` passthrough.
+    """
+    client_id = (
+        cluster.get("saslOauthbearerClientId")
+        or cluster.get("sasl_oauthbearer_client_id")
+    )
+    client_secret = (
+        cluster.get("saslOauthbearerClientSecret")
+        or cluster.get("sasl_oauthbearer_client_secret")
+    )
+    token_url = (
+        cluster.get("saslOauthbearerTokenEndpointUrl")
+        or cluster.get("sasl_oauthbearer_token_endpoint_url")
+    )
+
+    if client_id and client_secret and token_url:
+        scope = (
+            cluster.get("saslOauthbearerScope")
+            or cluster.get("sasl_oauthbearer_scope")
+        )
+        # Re-use the CA cert that _apply_ssl_certs already resolved for the
+        # Kafka broker connection — works for the token endpoint too.
+        ca_location = cfg.get("ssl.ca.location")
+        skip_verify = cfg.get("enable.ssl.certificate.verification") == "false"
+
+        cfg["oauth_cb"] = _make_oauth_cb(
+            token_url, client_id, client_secret, scope,
+            ca_location, skip_verify,
+        )
+        logger.info(
+            "OAuthBearer: using Python callback for token endpoint %s", token_url,
+        )
+        return
+
+    # Fallback: pass raw oauthbearer config/method to librdkafka
+    oauthbearer_config = (
+        cluster.get("saslOauthbearerConfig")
+        or cluster.get("sasl_oauthbearer_config")
+    )
+    if oauthbearer_config:
+        cfg["sasl.oauthbearer.config"] = str(oauthbearer_config).strip()
+
+    method = (
+        cluster.get("saslOauthbearerMethod")
+        or cluster.get("sasl_oauthbearer_method")
+    )
+    if method:
+        cfg["sasl.oauthbearer.method"] = str(method).strip()
+
+
+def _make_oauth_cb(
+    token_url: str,
+    client_id: str,
+    client_secret: str,
+    scope: str | None,
+    ca_location: str | None,
+    skip_verify: bool,
+):
+    """Return a ``oauth_cb`` callable for confluent-kafka-python.
+
+    The callback fetches an access token from the OIDC provider via
+    ``httpx`` (client-credentials grant) and returns ``(token, expiry)``.
+    """
+    def oauth_cb(config_str: str):  # noqa: ARG001 — required by confluent-kafka
+        data: dict[str, str] = {
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        }
+        if scope:
+            data["scope"] = scope
+
+        # SSL verification: use CA pem if available, else system default,
+        # or disable entirely when the cluster says so.
+        verify: bool | str = True
+        if skip_verify:
+            verify = False
+        elif ca_location:
+            verify = ca_location
+
+        try:
+            resp = httpx.post(token_url, data=data, verify=verify, timeout=10)
+            resp.raise_for_status()
+            token_data = resp.json()
+            access_token = token_data["access_token"]
+            expires_in = token_data.get("expires_in", 300)
+            expiry = time.time() + float(expires_in)
+            logger.info("OAuthBearer: token fetched, expires in %ss", expires_in)
+            return access_token, expiry
+        except Exception as e:
+            logger.error("OAuthBearer: token fetch from %s failed: %s", token_url, e)
+            raise
+
+    return oauth_cb

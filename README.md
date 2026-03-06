@@ -114,11 +114,14 @@ Override the file path with the `CLUSTERS_JSON` env var.
 
 ### Supported Protocols
 
-streamLens currently supports **PLAINTEXT** and **SSL** Kafka listener protocols.
+streamLens currently supports **SASL_SSL - PLAINTEXT** and **SSL** Kafka listener protocols.
 
-For SSL connections, add these fields to the cluster object:
+For SASL_SSL connections, add these fields to the cluster object:
 
-- `securityProtocol` — `"SSL"` or `"PLAINTEXT"` (default)
+- `securityProtocol` — `"SASL_SSL"`, `"SSL"` or `"PLAINTEXT"` (default)
+- `saslMechanism` — `"OAUTHBEARER"`, `"SCRAM-SHA-512"`, `"SCRAM-SHA-256"` or `"PLAIN"`
+- **Scram Authentication:** `saslUsername`, `saslPassword`
+- **OAUTHBEARER Authentication:** `saslOauthbearerMethod`, `saslOauthbearerClientId`, `saslOauthbearerClientSecret`, `saslOauthbearerTokenEndpointUrl`
 - `sslEndpointIdentificationAlgorithm` — `""` to disable hostname verification (dev/self-signed)
 - **PEM paths:** `sslCaLocation`, `sslCertificateLocation`, `sslKeyLocation`, `sslKeyPassword`
 - **Java truststore/keystore** (auto-converted to PEM; requires `keytool` + `openssl`): `sslTruststoreLocation`, `sslTruststorePassword`, `sslKeystoreLocation`, `sslKeystoreType`, `sslKeystorePassword`, `sslKeyPassword`

@@ -60,7 +60,7 @@ def _bool_from(val) -> bool:
     return str(val).strip().lower() in ("true", "1", "yes")
 
 
-_SSL_FIELD_ALIASES: list[tuple[str, ...]] = [
+_SECURITY_FIELD_ALIASES: list[tuple[str, ...]] = [
     ("securityProtocol", "security_protocol"),
     ("sslCaLocation", "ssl_ca_location", "ssl.ca.location"),
     ("sslCertificateLocation", "ssl_certificate_location"),
@@ -74,6 +74,10 @@ _SSL_FIELD_ALIASES: list[tuple[str, ...]] = [
     ("saslMechanism", "sasl_mechanism"),
     ("saslUsername", "sasl_username"),
     ("saslPassword", "sasl_password"),
+    ("saslOauthbearerMethod", "sasl_oauthbearer_method"),
+    ("saslOauthbearerClientId", "sasl_oauthbearer_client_id"),
+    ("saslOauthbearerClientSecret", "sasl_oauthbearer_client_secret"),
+    ("saslOauthbearerTokenEndpointUrl", "sasl_oauthbearer_token_endpoint_url"),
 ]
 
 
@@ -108,7 +112,7 @@ def _cluster_from_row(c: dict) -> dict:
         ),
     }
 
-    for aliases in _SSL_FIELD_ALIASES:
+    for aliases in _SECURITY_FIELD_ALIASES:
         val = _resolve(c, *aliases)
         if val is not None:
             out[aliases[0]] = val
@@ -196,7 +200,7 @@ def update_cluster(
                 "createdAt": _resolve(existing, "createdAt", "created_at") or "",
                 "enableKafkaEventProduceFromUi": enable_kafka_event_produce_from_ui,
             }
-            for aliases in _SSL_FIELD_ALIASES:
+            for aliases in _SECURITY_FIELD_ALIASES:
                 updated[aliases[0]] = _resolve(existing, *aliases)
             updated["sslEndpointIdentificationAlgorithm"] = _resolve(
                 existing, "sslEndpointIdentificationAlgorithm", "ssl_endpoint_identification_algorithm"
@@ -239,8 +243,9 @@ _SENSITIVE_FIELDS = {
     "sslCaLocation", "sslCertificateLocation", "sslKeyLocation", "sslKeyPassword",
     "sslTruststoreLocation", "sslTruststorePassword", "sslKeystoreLocation",
     "sslKeystoreType", "sslKeystorePassword", "sslEndpointIdentificationAlgorithm",
-    "enableSslCertificateVerification",
-    "saslUsername", "saslPassword", "saslMechanism",
+    "enableSslCertificateVerification", "saslUsername", "saslPassword", "saslMechanism",
+    "saslOauthbearerMethod", "saslOauthbearerClientId", "saslOauthbearerClientSecret",
+    "saslOauthbearerTokenEndpointUrl",
 }
 
 
