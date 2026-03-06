@@ -96,6 +96,34 @@ Clusters are stored in `server/data/clusters.json` (no database required). Add c
       "prometheusUrl": "http://prometheus:9090",
       "jmxHost": "localhost",
       "jmxPort": 9999
+    },
+    {
+        "id": 2,
+        "name": "oauthbearer_cluster",
+        "bootstrapServers": "your_bootstrap_url",
+        "securityProtocol": "SASL_SSL",
+        "saslMechanism": "OAUTHBEARER",
+        "saslOauthbearerClientId": "streamlens_clientId",
+        "saslOauthbearerClientSecret": "streamlens_clientSecret",
+        "saslOauthbearerTokenEndpointUrl": "your_keycloak_token_url",
+        "sslTruststoreLocation": "your.truststore.jks",
+        "sslTruststorePassword": "your_keycloak_url",
+        "sslEndpointIdentificationAlgorithm": "",
+        "enableSslCertificateVerification": true
+    },
+    {
+        "id": 3,
+        "name": "scram_cluster",
+        "bootstrapServers": "your_bootstrap_url",
+        "clusterType": "Apache Kafka",
+        "securityProtocol": "SASL_SSL",
+        "saslMechanism": "SCRAM-SHA-256",
+        "saslUsername": "streamlens_user",
+        "saslPassword": "streamlens_password",
+        "sslTruststoreLocation": "your.truststore.jks",
+        "sslTruststorePassword": "your_keycloak_url",
+        "sslEndpointIdentificationAlgorithm": "",
+        "enableSslCertificateVerification": true
     }
   ]
 }
