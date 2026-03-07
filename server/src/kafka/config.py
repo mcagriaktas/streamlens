@@ -250,18 +250,17 @@ def _apply_sasl(cfg: dict, cluster: dict) -> None:
         cfg["sasl.mechanism"] = value
         logger.info("SASL mechanism: %r", value)
 
-    if mechanism == "OAUTHBEARER":
-        _apply_sasl_oauthbearer(cfg, cluster)
+        if value in ("SCRAM-SHA-512", "SCRAM-SHA-256", "PLAIN"):
+            username = cluster.get("saslUsername") or cluster.get("sasl_username")
+            if username:
+                cfg["sasl.username"] = username.strip()
 
-    if mechanism in ("SCRAM-SHA-512", "SCRAM-SHA-256", "PLAIN"):
-        username = cluster.get("saslUsername") or cluster.get("sasl_username")
-        if username:
-            cfg["sasl.username"] = username.strip()
+            password = cluster.get("saslPassword") or cluster.get("sasl_password")
+            if password:
+                cfg["sasl.password"] = password
 
-        password = cluster.get("saslPassword") or cluster.get("sasl_password")
-        if password:
-            cfg["sasl.password"] = password
-
+        if value == "OAUTHBEARER":
+            _apply_sasl_oauthbearer(cfg, cluster)
 
 def _apply_sasl_oauthbearer(cfg: dict, cluster: dict) -> None:
     """Apply OAuthBearer / OIDC settings.
