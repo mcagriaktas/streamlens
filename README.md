@@ -121,7 +121,7 @@ Clusters are stored in `server/data/clusters.json` (no database required). Add c
         "saslUsername": "streamlens_user",
         "saslPassword": "streamlens_password",
         "sslTruststoreLocation": "your.truststore.jks",
-        "sslTruststorePassword": "your_keycloak_url",
+        "sslTruststorePassword": "your_truststore_password",
         "sslEndpointIdentificationAlgorithm": "",
         "enableSslCertificateVerification": true
     }
@@ -144,7 +144,7 @@ Override the file path with the `CLUSTERS_JSON` env var.
 
 streamLens currently supports **SASL_SSL - PLAINTEXT** and **SSL** Kafka listener protocols.
 
-For SASL_SSL connections, add these fields to the cluster object:
+For SSL and SASL_SSL connections, add these fields to the cluster object:
 
 - `securityProtocol` — `"SASL_SSL"`, `"SSL"` or `"PLAINTEXT"` (default)
 - `saslMechanism` — `"OAUTHBEARER"`, `"SCRAM-SHA-512"`, `"SCRAM-SHA-256"` or `"PLAIN"`
