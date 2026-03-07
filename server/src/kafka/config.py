@@ -250,16 +250,17 @@ def _apply_sasl(cfg: dict, cluster: dict) -> None:
         cfg["sasl.mechanism"] = value
         logger.info("SASL mechanism: %r", value)
 
-    username = cluster.get("saslUsername") or cluster.get("sasl_username")
-    if username:
-        cfg["sasl.username"] = username.strip()
-
-    password = cluster.get("saslPassword") or cluster.get("sasl_password")
-    if password:
-        cfg["sasl.password"] = password
-
     if mechanism == "OAUTHBEARER":
         _apply_sasl_oauthbearer(cfg, cluster)
+
+    if mechanism in ("SCRAM-SHA-512", "SCRAM-SHA-256"):
+        username = cluster.get("saslUsername") or cluster.get("sasl_username")
+        if username:
+            cfg["sasl.username"] = username.strip()
+
+        password = cluster.get("saslPassword") or cluster.get("sasl_password")
+        if password:
+            cfg["sasl.password"] = password
 
 
 def _apply_sasl_oauthbearer(cfg: dict, cluster: dict) -> None:
@@ -273,45 +274,24 @@ def _apply_sasl_oauthbearer(cfg: dict, cluster: dict) -> None:
     present, the callback handles the token fetch.  Otherwise falls back to
     raw ``sasl.oauthbearer.config`` passthrough.
     """
-    client_id = (
-        cluster.get("saslOauthbearerClientId")
-        or cluster.get("sasl_oauthbearer_client_id")
-    )
-    client_secret = (
-        cluster.get("saslOauthbearerClientSecret")
-        or cluster.get("sasl_oauthbearer_client_secret")
-    )
-    token_url = (
-        cluster.get("saslOauthbearerTokenEndpointUrl")
-        or cluster.get("sasl_oauthbearer_token_endpoint_url")
-    )
+    client_id = cluster.get("saslOauthbearerClientId") or cluster.get("sasl_oauthbearer_client_id")
+    client_secret = cluster.get("saslOauthbearerClientSecret") or cluster.get("sasl_oauthbearer_client_secret")
+    token_url = cluster.get("saslOauthbearerTokenEndpointUrl") or cluster.get("sasl_oauthbearer_token_endpoint_url")
 
     if client_id and client_secret and token_url:
-        scope = (
-            cluster.get("saslOauthbearerScope")
-            or cluster.get("sasl_oauthbearer_scope")
-        )
         # Re-use the CA cert that _apply_ssl_certs already resolved for the
         # Kafka broker connection — works for the token endpoint too.
         ca_location = cfg.get("ssl.ca.location")
         skip_verify = cfg.get("enable.ssl.certificate.verification") == "false"
 
         cfg["oauth_cb"] = _make_oauth_cb(
-            token_url, client_id, client_secret, scope,
+            token_url, client_id, client_secret,
             ca_location, skip_verify,
         )
         logger.info(
             "OAuthBearer: using Python callback for token endpoint %s", token_url,
         )
         return
-
-    # Fallback: pass raw oauthbearer config/method to librdkafka
-    oauthbearer_config = (
-        cluster.get("saslOauthbearerConfig")
-        or cluster.get("sasl_oauthbearer_config")
-    )
-    if oauthbearer_config:
-        cfg["sasl.oauthbearer.config"] = str(oauthbearer_config).strip()
 
     method = (
         cluster.get("saslOauthbearerMethod")
@@ -325,7 +305,6 @@ def _make_oauth_cb(
     token_url: str,
     client_id: str,
     client_secret: str,
-    scope: str | None,
     ca_location: str | None,
     skip_verify: bool,
 ):
@@ -340,8 +319,6 @@ def _make_oauth_cb(
             "client_id": client_id,
             "client_secret": client_secret,
         }
-        if scope:
-            data["scope"] = scope
 
         # SSL verification: use CA pem if available, else system default,
         # or disable entirely when the cluster says so.
