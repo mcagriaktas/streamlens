@@ -46,7 +46,7 @@
         "saslMechanism": "OAUTHBEARER",
         "saslOauthbearerMethod": "oidc",
         "saslOauthbearerClientId": "kafka-admin",
-        "saslOauthbearerClientSecret": "aTCgOCh39yrevYCf60yIuo7WH1heozWN",
+        "saslOauthbearerClientSecret": "your_oauthbearer_client_secret",
         "saslOauthbearerTokenEndpointUrl": "https://keycloak.dahbest.kfn:8443/realms/master/protocol/openid-connect/token",
         "sslTruststoreLocation": "/certs/streamlens.truststore.jks",
         "sslTruststorePassword": "cagri3541",
