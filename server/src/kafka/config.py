@@ -252,10 +252,16 @@ def _apply_sasl(cfg: dict, cluster: dict) -> None:
 
         if value in ("SCRAM-SHA-512", "SCRAM-SHA-256", "PLAIN"):
             username = cluster.get("saslUsername") or cluster.get("sasl_username")
+            password = cluster.get("saslPassword") or cluster.get("sasl_password")
+
+            if not username or not password:
+                logger.warning(
+                    "SASL mechanism %r is configured, but saslUsername or saslPassword is missing. "
+                    "Authentication will likely fail.", value
+                )
+
             if username:
                 cfg["sasl.username"] = username.strip()
-
-            password = cluster.get("saslPassword") or cluster.get("sasl_password")
             if password:
                 cfg["sasl.password"] = password
 
