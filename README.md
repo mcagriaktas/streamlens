@@ -142,7 +142,7 @@ Override the file path with the `CLUSTERS_JSON` env var.
 
 ### Supported Protocols
 
-streamLens currently supports **SASL_SSL - PLAINTEXT** and **SSL** Kafka listener protocols.
+streamLens currently supports **SASL_SSL**, **PLAINTEXT**, and **SSL** Kafka listener protocols.
 
 For SSL and SASL_SSL connections, add these fields to the cluster object:
 
