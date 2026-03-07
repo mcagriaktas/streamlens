@@ -107,7 +107,7 @@ Clusters are stored in `server/data/clusters.json` (no database required). Add c
         "saslOauthbearerClientSecret": "streamlens_clientSecret",
         "saslOauthbearerTokenEndpointUrl": "your_keycloak_token_url",
         "sslTruststoreLocation": "your.truststore.jks",
-        "sslTruststorePassword": "your_keycloak_url",
+        "sslTruststorePassword": "your_truststore_password",
         "sslEndpointIdentificationAlgorithm": "",
         "enableSslCertificateVerification": true
     },
