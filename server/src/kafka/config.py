@@ -253,7 +253,7 @@ def _apply_sasl(cfg: dict, cluster: dict) -> None:
     if mechanism == "OAUTHBEARER":
         _apply_sasl_oauthbearer(cfg, cluster)
 
-    if mechanism in ("SCRAM-SHA-512", "SCRAM-SHA-256"):
+    if mechanism in ("SCRAM-SHA-512", "SCRAM-SHA-256", "PLAIN"):
         username = cluster.get("saslUsername") or cluster.get("sasl_username")
         if username:
             cfg["sasl.username"] = username.strip()
@@ -271,8 +271,8 @@ def _apply_sasl_oauthbearer(cfg: dict, cluster: dict) -> None:
     (``STORE routines::unregistered scheme``).
 
     When OIDC credentials (clientId + clientSecret + tokenEndpointUrl) are
-    present, the callback handles the token fetch.  Otherwise falls back to
-    raw ``sasl.oauthbearer.config`` passthrough.
+    present, the callback handles the token fetch. Otherwise, it falls back
+    to configuring the ``sasl.oauthbearer.method`` if provided.
     """
     client_id = cluster.get("saslOauthbearerClientId") or cluster.get("sasl_oauthbearer_client_id")
     client_secret = cluster.get("saslOauthbearerClientSecret") or cluster.get("sasl_oauthbearer_client_secret")
